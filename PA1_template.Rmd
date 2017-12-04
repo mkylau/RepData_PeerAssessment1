@@ -1,25 +1,171 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Course Project 1"
+author: "Matthew Lau"
+date: "December 2, 2017"
+output: html_document
 ---
 
-
-## Loading and preprocessing the data
-
+##Load required packges
 
 
-## What is mean total number of steps taken per day?
+```{r}
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(scales)
+```
+
+## 1.1) Download data (Optional if using dataset on GitHUb)
 
 
+```{r cars}
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+filename <- "activity.zip"
+download.file(url, destfile=filename)
+unzip(zipfile=filename, overwrite = TRUE)
+```
 
-## What is the average daily activity pattern?
+## 1.2) Read Data and format date
+
+Load the data, set NA's
+```{r}
+dataset <- read.table("activity.csv", header=TRUE, na.strings="NA", sep=",")
+dataset$date <- ymd(dataset$date)
+str(dataset)
+```
+
+## 2) Histogram of the total number of steps taken each day
+
+Plot histogram
+```{r}
+dataset_dailysteps <- dataset %>% 
+        group_by(date) %>% 
+        summarise(daily_steps = sum(steps), na.rm=TRUE)
+
+ggplot(dataset_dailysteps, aes(x = daily_steps)) +
+  geom_histogram(fill = "steelblue") +
+  labs(title = "Frequency of Daily Steps", x = "Total Daily Steps per Day", y = "Occurance")
+```
+
+## 3) Mean and median number of steps taken each day
+
+```{r}
+dataset_summary <- dataset %>% 
+        group_by(date) %>% 
+        summarize(daily_steps = sum(steps, na.rm=TRUE)) %>% #calculate daily steps
+        summarize(mean = mean(daily_steps, na.rm=TRUE), median = median(daily_steps, na.rm=TRUE)) #find average and median
+dataset_summary
+```
 
 
+## 4) Time series plot of the average number of steps taken
 
-## Imputing missing values
+```{r}
+dataset_timeseries <- dataset %>% 
+        group_by(date) %>% 
+        summarize(daily_steps = sum(steps, na.rm=TRUE))
+
+ggplot(dataset_timeseries, aes(x = date, y = daily_steps)) +
+        geom_point(colour = "steelblue", na.rm=TRUE) + #scatterplot
+        scale_x_date(breaks=date_breaks("1 week"), labels=date_format("%b %d"))+ #set date scale
+        labs(title = "Time Series Plot of Daily Steps from October 2012 to November 2012", x = "Date", y = "Daily Steps")+ #add in labels
+        theme(plot.title = element_text(hjust = 0.5)) # center title
+
+```
+
+## 5) The 5-minute interval that, on average, contains the maximum number of steps
+
+### 1) Find the average steps of intervals
+```{r}
+dataset_interval <- dataset %>% 
+        group_by(interval) %>% 
+        summarize(interval_average_steps = mean(steps, na.rm=TRUE))
+head(dataset_interval, 10)
+
+ggplot(dataset_interval, aes(x = interval, y = interval_average_steps)) +
+        geom_line(colour = "steelblue", na.rm=TRUE) +
+        labs(title = "Plot of Average Steps by Interval", x = "Interval", y = "Daily Steps")+
+        theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+### 2) Find the interval with highest steps
+
+```{r}
+dataset_highest_interval <- dataset_interval %>% 
+        arrange(-interval_average_steps) %>% 
+        head(1)
+dataset_highest_interval
+```
 
 
+## 6) Code to describe and show a strategy for imputing missing data
 
-## Are there differences in activity patterns between weekdays and weekends?
+### 1) Calculate # of missing values
+```{r}
+dataset_totalrows <- nrow(dataset) 
+dataset_completedcases <- sum(complete.cases(dataset))
+dataset_NACases <- dataset_totalrows - dataset_completedcases
+dataset_NACases
+
+```
+
+### 2) Strategy for imputting missing data
+Use the mean of the interval to calculate missing data
+
+```{r}
+dataset_impute <- dataset %>% 
+        left_join(dataset_interval, by=c("interval"="interval")) %>%
+        mutate(steps = case_when(
+                is.na(steps) == TRUE ~ as.integer(round(interval_average_steps, 0)),
+                TRUE ~ as.integer(steps))) %>%
+        select (-interval_average_steps)
+head(dataset_impute, 10)
+
+NACases <- sum(is.na(dataset_impute))
+NACases
+```
+
+### 3) Mean and Media of new imputed dataset
+
+Yes, the imputed values differ from original dataset. It has increased the mean and the median.
+
+```{r}
+dataset_impute_summary <- dataset_impute %>% 
+        group_by(date) %>% 
+        summarize(daily_steps = sum(steps, na.rm=TRUE)) %>% #calculate daily steps
+        summarize(mean = mean(daily_steps, na.rm=TRUE), median = median(daily_steps, na.rm=TRUE)) #find average and median
+dataset_impute_summary
+```
+
+## 7) Histogram of the total number of steps taken each day after missing values are imputed
+
+```{r}
+dataset_dailysteps_impute <- dataset_impute %>% 
+        group_by(date) %>% 
+        summarise(daily_steps = sum(steps, na.rm=TRUE))
+
+ggplot(dataset_dailysteps_impute, aes(x = daily_steps)) +
+        geom_histogram(fill = "steelblue") +
+        labs(title = "Frequency of Daily Steps", x = "Total Daily Steps per Day", y = "Occurance")+
+        theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+## 8) Panel plot comparing the average number of steps taken per 5-minute interval across weekdays and weekends
+
+```{r}
+dataset_dayofweek_impute <- dataset_impute %>% 
+        mutate(dayofweek = wday(date, label=TRUE),
+               weekend = ifelse(dayofweek %in% c("Sun", "Sat"), "Weekend", "Weekday ")) %>%
+        group_by(weekend, interval) %>% 
+        summarise(daily_steps = sum(steps, na.rm=TRUE))
+
+ggplot(dataset_dayofweek_impute, aes(x = interval, y = daily_steps)) +
+        geom_line(colour = "steelblue") +
+        facet_grid(weekend ~ .) +
+        labs(title = "Time Series Plot of Daily Steps on Weekdays vs Weekend", x = "Interval", y = "Total Steps")+
+        theme(plot.title = element_text(hjust = 0.5))
+
+```
